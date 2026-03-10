@@ -1,0 +1,107 @@
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.exc import OperationalError
+from datetime import datetime
+import os
+
+POSTGRES_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://postgres:password@localhost:5432/backtask"
+)
+
+engine = None
+SessionLocal = None
+Base = declarative_base()
+is_postgres = False
+
+in_memory_tasks = []
+in_memory_task_id_counter = 1
+
+try:
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    is_postgres = True
+    SessionLocal = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine
+    )
+    print("Connected to PostgreSQL")
+except (OperationalError, Exception) as e:
+    print(f"PostgreSQL connection failed: {e}")
+    print("Using in-memory storage...")
+    is_postgres = False
+
+
+class InMemorySession:
+    def query(self, model):
+        return InMemoryQuery(model)
+    
+    def add(self, task_obj):
+        global in_memory_task_id_counter
+        if not task_obj.id:
+            task_obj.id = in_memory_task_id_counter
+            in_memory_task_id_counter += 1
+        in_memory_tasks.append(task_obj)
+    
+    def commit(self):
+        pass
+    
+    def refresh(self, obj):
+        pass
+    
+    def delete(self, obj):
+        global in_memory_tasks
+        in_memory_tasks = [t for t in in_memory_tasks if t.id != obj.id]
+    
+    def close(self):
+        pass
+
+
+class InMemoryQuery:
+    def __init__(self, model):
+        self.model = model
+    
+    def all(self):
+        return in_memory_tasks
+    
+    def filter(self, condition):
+        return InMemoryFilterQuery(condition, in_memory_tasks)
+    
+    def first(self):
+        return in_memory_tasks[0] if in_memory_tasks else None
+
+
+class InMemoryFilterQuery:
+    def __init__(self, condition, data):
+        self.condition = condition
+        self.data = data
+    
+    def first(self):
+        for task in self.data:
+            if hasattr(self.condition, "left") and hasattr(self.condition, "right"):
+                if self.condition.right.value == task.id:
+                    return task
+        return None
+
+
+class InMemoryTask:
+    def __init__(self, title, description, status):
+        self.id = None
+        self.title = title
+        self.description = description
+        self.status = status
+        self.created_at = datetime.now()
+        self.updated_at = datetime.now()
+
+
+def get_db():
+    if is_postgres:
+        db = SessionLocal()
+    else:
+        db = InMemorySession()
+    try:
+        yield db
+    finally:
+        db.close()

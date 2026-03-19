@@ -6,7 +6,7 @@ import os
 
 POSTGRES_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:password@localhost:5432/backtask"
+    "postgresql://postgres:6080@localhost:5432/BackTask2"
 )
 
 engine = None
@@ -87,11 +87,12 @@ class InMemoryFilterQuery:
 
 
 class InMemoryTask:
-    def __init__(self, title, description, status):
+    def __init__(self, title, description, status, user_id):
         self.id = None
         self.title = title
         self.description = description
         self.status = status
+        self.user_id = user_id
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 

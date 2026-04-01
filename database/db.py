@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import OperationalError
 from datetime import datetime
@@ -6,11 +7,18 @@ import os
 
 POSTGRES_URL = os.getenv(
     "DATABASE_URL",
+    "postgresql+asyncpg://postgres:6080@localhost:5432/BackTask2"
+)
+
+POSTGRES_SYNC_URL = os.getenv(
+    "DATABASE_URL_SYNC",
     "postgresql://postgres:6080@localhost:5432/BackTask2"
 )
 
 engine = None
+async_engine = None
 SessionLocal = None
+AsyncSessionLocal = None
 Base = declarative_base()
 is_postgres = False
 
@@ -18,18 +26,35 @@ in_memory_tasks = []
 in_memory_task_id_counter = 1
 
 try:
-    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    is_postgres = True
-    SessionLocal = sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=engine
+    async_engine = create_async_engine(
+        POSTGRES_URL,
+        echo=False,
+        pool_pre_ping=True,
     )
-    print("Connected to PostgreSQL")
+    AsyncSessionLocal = async_sessionmaker(
+        async_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    
+    try:
+        sync_engine = create_engine(POSTGRES_SYNC_URL, pool_pre_ping=True)
+        with sync_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine = sync_engine
+        is_postgres = True
+        SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=engine
+        )
+        print("Connected to PostgreSQL")
+    except (OperationalError, Exception) as e:
+        print(f"PostgreSQL connection failed: {e}")
+        print("Using in-memory storage...")
+        is_postgres = False
 except (OperationalError, Exception) as e:
-    print(f"PostgreSQL connection failed: {e}")
+    print(f"Async PostgreSQL connection initial setup failed: {e}")
     print("Using in-memory storage...")
     is_postgres = False
 
@@ -100,9 +125,36 @@ class InMemoryTask:
 def get_db():
     if is_postgres:
         db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
     else:
-        db = InMemorySession()
-    try:
-        yield db
-    finally:
-        db.close()
+        yield InMemorySession()
+
+
+async def get_async_db():
+    if is_postgres and AsyncSessionLocal:
+        async with AsyncSessionLocal() as session:
+            yield session
+    else:
+        yield InMemorySession()
+
+
+async def verify_db_connection():
+    if is_postgres and async_engine:
+        try:
+            async with async_engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+    elif is_postgres and engine:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+    else:
+        return False

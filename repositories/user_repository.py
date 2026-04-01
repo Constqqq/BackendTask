@@ -1,29 +1,27 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from database.models import User
 from utils.security import get_password_hash, verify_password
 from schemas.user import UserCreate
 
 
 class UserRepository:
-    
-    
-    def __init__(self, db: Session):
+    def __init__(self, db: AsyncSession):
         self.db = db
     
-    def get_user_by_id(self, user_id: int) -> User | None:
-        
-        return self.db.query(User).filter(User.id == user_id).first()
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        result = await self.db.execute(select(User).filter(User.id == user_id))
+        return result.scalar_one_or_none()
     
-    def get_user_by_email(self, email: str) -> User | None:
-        
-        return self.db.query(User).filter(User.email == email).first()
+    async def get_user_by_email(self, email: str) -> User | None:
+        result = await self.db.execute(select(User).filter(User.email == email))
+        return result.scalar_one_or_none()
     
-    def get_all_users(self) -> list[User]:
-       
-        return self.db.query(User).all()
+    async def get_all_users(self) -> list[User]:
+        result = await self.db.execute(select(User))
+        return result.scalars().all()
     
-    def create_user(self, user_create: UserCreate) -> User:
-        
+    async def create_user(self, user_create: UserCreate) -> User:
         hashed_password = get_password_hash(user_create.password)
         db_user = User(
             email=user_create.email,
@@ -31,30 +29,27 @@ class UserRepository:
             is_active=1
         )
         self.db.add(db_user)
-        self.db.commit()
-        self.db.refresh(db_user)
+        await self.db.commit()
+        await self.db.refresh(db_user)
         return db_user
     
-    def verify_user_password(self, user: User, password: str) -> bool:
-        
+    async def verify_user_password(self, user: User, password: str) -> bool:
         return verify_password(password, user.hashed_password)
     
-    def update_user(self, user_id: int, **kwargs) -> User | None:
-        
-        user = self.get_user_by_id(user_id)
+    async def update_user(self, user_id: int, **kwargs) -> User | None:
+        user = await self.get_user_by_id(user_id)
         if user:
             for key, value in kwargs.items():
                 if value is not None:
                     setattr(user, key, value)
-            self.db.commit()
-            self.db.refresh(user)
+            await self.db.commit()
+            await self.db.refresh(user)
         return user
     
-    def delete_user(self, user_id: int) -> bool:
-        
-        user = self.get_user_by_id(user_id)
+    async def delete_user(self, user_id: int) -> bool:
+        user = await self.get_user_by_id(user_id)
         if user:
             self.db.delete(user)
-            self.db.commit()
+            await self.db.commit()
             return True
         return False

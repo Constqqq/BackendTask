@@ -1,17 +1,17 @@
-from fastapi import FastAPI
-from database.db import engine, Base, is_postgres
-from routes.tasks import router as tasks_router
-from routes.auth import router as auth_router
-from routes.comments import router as comments_router
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
-from fastapi import HTTPException
+from database.db import engine, Base, is_postgres
+from routes.tasks import router as tasks_router, minio_client
+from routes.auth import router as auth_router
+from routes.comments import router as comments_router
+from utils.health import check_health, get_info
 
 if is_postgres and engine:
     Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(title="BackendTask API", version="1.0.0")
 
 
 _ERROR_CODES = {
@@ -49,3 +49,13 @@ app.add_middleware(
 app.include_router(tasks_router)
 app.include_router(auth_router)
 app.include_router(comments_router)
+
+
+@app.get("/health")
+async def health():
+    return await check_health(minio_client)
+
+
+@app.get("/info")
+async def info():
+    return get_info()
